@@ -1,0 +1,4 @@
+pygame==2.6.1
+pygame-ce==2.5.3
+pygame-widgets==1.1.7
+screeninfo==0.8.1
