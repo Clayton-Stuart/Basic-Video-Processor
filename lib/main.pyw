@@ -6,7 +6,7 @@ from tkinter import filedialog as fd
 from pygame_widgets.dropdown import Dropdown as Dropdown
 from pygame_widgets.button import Button as Button
 from pygame_widgets.textbox import TextBox as TextBox
-from pages import *
+from pages import get_remove_index
 import screeninfo
 import os
 from random import choice
@@ -35,8 +35,9 @@ rotate_in = ""
 rotate_out = ""
 rotate = 0
 
-mirror_input = ""
-mirror_output = ""
+mirror_in = ""
+mirror_out = ""
+mirror_axis = ["Horizontal (Left-Right)", "hflip"]
 
 clip_in = ""
 clip_out = ""
@@ -48,6 +49,10 @@ scale_out = ""
 keep_aspect_ratio = True
 new_width = 0
 new_height = 0
+
+merge_in = []
+merge_out = ""
+merge_order = []
 
 # Startup Pygame
 pygame.init()
@@ -64,6 +69,10 @@ def change_page(new_page):
 def set_rotate(txt):
     global rotate
     rotate = txt
+
+def set_mirror(txt):
+    global mirror_axis
+    mirror_axis = txt
 
 def validateScale(txt, scale):
     global new_height, new_width
@@ -132,6 +141,45 @@ def set_in_file(file_path, page):
     elif page == "rotate":
         global rotate_in
         rotate_in = file_path
+    elif page == "mirror":
+        global mirror_in
+        mirror_in = file_path
+
+def add_in_file(file_path):
+    global merge_in, merge_order
+    merge_in.append(file_path)
+    merge_order.append(len(merge_in) - 1)
+
+def remove_in_file(index: str):
+    global merge_in, merge_order
+    if not index.isnumeric():
+        return
+    else:
+        index = int(index) - 1
+    
+    if index >= len(merge_in):
+        return
+
+    merge_in.pop(index)
+    place = merge_order.index(index)
+    merge_order.pop(place)
+    for i in range(len(merge_order)):
+        if merge_order[i] > index:
+            merge_order[i] -= 1
+
+    change_page("merge")
+
+def merge_swap(index1: str, index2: str):
+    global merge_in, merge_order
+    if not index1.isnumeric() or not index2.isnumeric():
+        return
+    index1 = int(index1) - 1
+    index2 = int(index2) - 1
+    if index1 >= len(merge_in) or index2 >= len(merge_in):
+        return
+    merge_in[index1], merge_in[index2] = merge_in[index2], merge_in[index1]
+
+    
 
 def set_out_file(file_path, page):
     if page == "convert":
@@ -146,8 +194,17 @@ def set_out_file(file_path, page):
     elif page == "rotate":
         global rotate_out
         rotate_out = file_path
+    elif page == "mirror":
+        global mirror_out
+        mirror_out = file_path
+    elif page == "merge":
+        global merge_out
+        merge_out = file_path
+    
 
 def convert(in_file, out_file):
+    if out_file == "":
+        return
     names = list(os.listdir(os.path.join(".", "lib", "bats")))
     fname = ''.join([choice(CHARS) for _ in range(10)]) + ".bat"
     while fname in names:
@@ -160,6 +217,8 @@ def convert(in_file, out_file):
     
 
 def clip(in_file, out_file, start, end):
+    if out_file == "":
+        return
     if start == "start" and end == "end":
         convert(in_file, out_file)
         return
@@ -185,6 +244,8 @@ def clip(in_file, out_file, start, end):
         subprocess.Popen(f"{FFMPEG} -ss {start} -to {end} -i \"{in_file}\" \"{out_file}\"")
 
 def scale(in_file, out_file, width, height, keep_aspect_ratio):
+    if out_file == "":
+        return
     if int(width) % 2!= 0:
         width = str(int(width) + 1)
     if int(height) % 2!= 0:
@@ -205,6 +266,8 @@ def scale(in_file, out_file, width, height, keep_aspect_ratio):
     subprocess.Popen(command)
 
 def rotate_image(in_file, out_file, degrees):
+    if out_file == "":
+        return
     if degrees == 90: 
         vf = "transpose=1"
     elif degrees == 180:
@@ -227,7 +290,46 @@ def rotate_image(in_file, out_file, degrees):
     file.close()
     subprocess.Popen(command)
 
+def mirror_image(in_file, out_file, axis):
+    if out_file == "":
+        return
+    names = list(os.listdir(os.path.join(".", "lib", "bats")))
+    fname = ''.join([choice(CHARS) for _ in range(10)]) + ".bat"
+    while fname in names:
+        fname = ''.join([choice(CHARS) for _ in range(10)]) + ".bat"
 
+
+    command = f"{FFMPEG} -i \"{in_file}\" -vf \"{axis}\" \"{out_file}\""
+
+    file = open(os.path.join(".", "lib", "bats", fname), "w")
+    file.write(command + "\nexit")
+    file.close()
+    subprocess.Popen(command)
+
+def merge(in_files, out_file, order):
+    # ffmpeg -i opening.mkv -i episode.mkv -i ending.mkv \
+    # -filter_complex "[0:v] [0:a] [1:v] [1:a] [2:v] [2:a] \
+    # concat=n=3:v=1:a=1 [v] [a]" \
+    # -map "[v]" -map "[a]" output.mkv
+    if out_file == "":
+        return
+    names = list(os.listdir(os.path.join(".", "lib", "bats")))
+    fname = ''.join([choice(CHARS) for _ in range(10)]) + ".bat"
+    while fname in names:
+        fname = ''.join([choice(CHARS) for _ in range(10)]) + ".bat"
+
+    command = f"{FFMPEG} "
+    for file in in_files:
+        command += f"-i \"{file}\" "
+    command += f"-filter_complex \""
+
+    for i in range(len(in_files)):
+        command += f"[{i}:v:0] [{i}:a:0] "
+    command += f"concat=n={len(in_files)}:v=1:a=1 [v] [a]\" -map \"[v]\" -map \"[a]\" \"{out_file}\""
+    file = open(os.path.join(".", "lib", "bats", fname), "w")
+    file.write(command + "\nexit")
+    file.close()
+    subprocess.Popen(command)
 
 # Home Page Dropdown Selection
 home_dropdown = Dropdown(screen, WIN_WIDTH // 64, WIN_HEIGHT // 40, WIN_WIDTH / 4.6, WIN_HEIGHT / 10.666, "Select Operation",  
@@ -235,7 +337,7 @@ home_dropdown = Dropdown(screen, WIN_WIDTH // 64, WIN_HEIGHT // 40, WIN_WIDTH / 
                          borderRadius=3, 
                          colour=pygame.Color('gray'), 
                          font=pygame.font.SysFont('calibri', WIN_WIDTH // 32) if WIN_HEIGHT < WIN_WIDTH else pygame.font.SysFont('calibri', WIN_HEIGHT // 20), 
-                         values=["convert", "clip", "scale", "merge", "rotate", "Mirror"], 
+                         values=["convert", "clip", "scale", "merge", "rotate", "mirror"], 
                          direction='down', 
                          textHAlign='left',
                          onRelease=(lambda: change_page(home_dropdown.getSelected())),)
@@ -399,13 +501,13 @@ rotate_input = Button(screen, WIN_WIDTH // 64, WIN_HEIGHT // 2, WIN_WIDTH / 8.53
 rotate_output = Button(screen, WIN_WIDTH // 64, WIN_HEIGHT // 1.675, WIN_WIDTH / 8.533, WIN_HEIGHT / 10.666,
                    text="Output",
                    font=pygame.font.SysFont('calibri', WIN_WIDTH // 45) if WIN_HEIGHT < WIN_WIDTH else pygame.font.SysFont('calibri', WIN_HEIGHT // 25), 
-                   onRelease=(lambda: lambda: set_out_file(fd.asksaveasfilename(), "rotate")),
+                   onRelease=(lambda: set_out_file(fd.asksaveasfilename(), "rotate")),
                    textHAlign='centre', textVAlign='centre',
                    radius=3,
                    colour=pygame.Color('gray'),
                    pressedColour=(90, 90, 255),
                    inactiveColour=(176, 176, 176))
-rotate_run = Button(screen, WIN_WIDTH // 64, WIN_HEIGHT - WIN_HEIGHT / 10.4, WIN_WIDTH / 8.533, WIN_HEIGHT / 10.6,
+rotate_run = Button(screen, WIN_WIDTH // 64, WIN_HEIGHT - WIN_HEIGHT / 10.4, WIN_WIDTH / 8.533, WIN_HEIGHT / 10.666,
                      text="Run",
                      font=pygame.font.SysFont('calibri', WIN_WIDTH // 45) if WIN_HEIGHT < WIN_WIDTH else pygame.font.SysFont('calibri', WIN_HEIGHT // 25), 
                      onRelease=(lambda: rotate_image(rotate_in, rotate_out, rotate)),
@@ -427,31 +529,155 @@ mirror_input = Button(screen, WIN_WIDTH // 64, WIN_HEIGHT // 2, WIN_WIDTH / 8.53
 mirror_output = Button(screen, WIN_WIDTH // 64, WIN_HEIGHT // 1.675, WIN_WIDTH / 8.533, WIN_HEIGHT / 10.666,
                    text="Output",
                    font=pygame.font.SysFont('calibri', WIN_WIDTH // 45) if WIN_HEIGHT < WIN_WIDTH else pygame.font.SysFont('calibri', WIN_HEIGHT // 25), 
-                   onRelease=(lambda: lambda: set_out_file(fd.asksaveasfilename(), "mirror")),
+                   onRelease=(lambda: set_out_file(fd.asksaveasfilename(), "mirror")),
                    textHAlign='centre', textVAlign='centre',
                    radius=3,
                    colour=pygame.Color('gray'),
                    pressedColour=(90, 90, 255),
                    inactiveColour=(176, 176, 176))
-                      
-                    
+mirror_axis_lr = Button(screen, WIN_WIDTH // 64, WIN_HEIGHT // 2.7, WIN_WIDTH / 5.5, WIN_HEIGHT / 10.666,
+                   text="Mirror (Left-Right)",
+                   font=pygame.font.SysFont('calibri', WIN_WIDTH // 45) if WIN_HEIGHT < WIN_WIDTH else pygame.font.SysFont('calibri', WIN_HEIGHT // 25), 
+                   onRelease=(lambda: set_mirror(["Horizontal (Left-Right)", "hflip"])),
+                   textHAlign='centre', textVAlign='centre',
+                   radius=3,
+                   colour=pygame.Color('gray'),
+                   pressedColour=(90, 90, 255),
+                   inactiveColour=(176, 176, 176))
+mirror_axis_ud = Button(screen, WIN_WIDTH // 64, WIN_HEIGHT // 4, WIN_WIDTH / 5.5, WIN_HEIGHT / 10.666,
+                   text="Mirror (Up-Down)",
+                   font=pygame.font.SysFont('calibri', WIN_WIDTH // 45) if WIN_HEIGHT < WIN_WIDTH else pygame.font.SysFont('calibri', WIN_HEIGHT // 25), 
+                   onRelease=(lambda: set_mirror(["Vertical (Up-Down)", "vflip"])),
+                   textHAlign='centre', textVAlign='centre',
+                   radius=3,
+                   colour=pygame.Color('gray'),
+                   pressedColour=(90, 90, 255),
+                   inactiveColour=(176, 176, 176))
+mirror_run = Button(screen, WIN_WIDTH // 64, WIN_HEIGHT - WIN_HEIGHT / 10.4, WIN_WIDTH / 8.533, WIN_HEIGHT / 10.666,
+                     text="Run",
+                     font=pygame.font.SysFont('calibri', WIN_WIDTH // 45) if WIN_HEIGHT < WIN_WIDTH else pygame.font.SysFont('calibri', WIN_HEIGHT // 25), 
+                     onRelease=(lambda: mirror_image(mirror_in, mirror_out, mirror_axis[1])),
+                     textHAlign='centre', textVAlign='centre',
+                     radius=3,
+                     colour=pygame.Color('gray'),
+                     pressedColour=(90, 90, 255),
+                     inactiveColour=(176, 176, 176))
+merge_add_input = Button(screen, WIN_WIDTH // 64, WIN_HEIGHT // 4, WIN_WIDTH / 8.533, WIN_HEIGHT / 10.666,
+                     text="Add Input",
+                     font=pygame.font.SysFont('calibri', WIN_WIDTH // 45) if WIN_HEIGHT < WIN_WIDTH else pygame.font.SysFont('calibri', WIN_HEIGHT // 25), 
+                     onRelease=(lambda: add_in_file(fd.askopenfilename())),
+                     textHAlign='centre', textVAlign='centre',
+                     radius=3,
+                     colour=pygame.Color('gray'),
+                     pressedColour=(90, 90, 255),
+                     inactiveColour=(176, 176, 176))
+merge_output = Button(screen, WIN_WIDTH // 64, WIN_HEIGHT // 2.8, WIN_WIDTH / 8.533, WIN_HEIGHT / 10.666,
+                   text="Output",
+                   font=pygame.font.SysFont('calibri', WIN_WIDTH // 45) if WIN_HEIGHT < WIN_WIDTH else pygame.font.SysFont('calibri', WIN_HEIGHT // 25), 
+                   onRelease=(lambda: set_out_file(fd.asksaveasfilename(), "merge")),
+                   textHAlign='centre', textVAlign='centre',
+                   radius=3,
+                   colour=pygame.Color('gray'),
+                   pressedColour=(90, 90, 255),
+                   inactiveColour=(176, 176, 176))
+merge_remove_input = Button(screen, WIN_WIDTH // 64, WIN_HEIGHT // 1.3, WIN_WIDTH / 8.533, WIN_HEIGHT / 10.666,
+                   text="Remove File",
+                   font=pygame.font.SysFont('calibri', WIN_WIDTH // 45) if WIN_HEIGHT < WIN_WIDTH else pygame.font.SysFont('calibri', WIN_HEIGHT // 25), 
+                   onRelease=(lambda: [change_page("index")]),
+                   textHAlign='centre', textVAlign='centre',
+                   radius=3,
+                   colour=pygame.Color('gray'),
+                   pressedColour=(90, 90, 255),
+                   inactiveColour=(176, 176, 176))
+merge_order_input = Button(screen, WIN_WIDTH // 64, WIN_HEIGHT // 1.5, WIN_WIDTH / 8.533, WIN_HEIGHT / 10.666,
+                   text="Reorder Files",
+                   font=pygame.font.SysFont('calibri', WIN_WIDTH // 45) if WIN_HEIGHT < WIN_WIDTH else pygame.font.SysFont('calibri', WIN_HEIGHT // 25), 
+                   onRelease=(lambda: [change_page("reorder")]),
+                   textHAlign='centre', textVAlign='centre',
+                   radius=3,
+                   colour=pygame.Color('gray'),
+                   pressedColour=(90, 90, 255),
+                   inactiveColour=(176, 176, 176))
+merge_run = Button(screen, WIN_WIDTH // 64, WIN_HEIGHT - WIN_HEIGHT / 10.4, WIN_WIDTH / 8.533, WIN_HEIGHT / 10.666,
+                     text="Run",
+                     font=pygame.font.SysFont('calibri', WIN_WIDTH // 45) if WIN_HEIGHT < WIN_WIDTH else pygame.font.SysFont('calibri', WIN_HEIGHT // 25), 
+                     onRelease=(lambda: merge(merge_in, merge_out, merge_order)),
+                     textHAlign='centre', textVAlign='centre',
+                     radius=3,
+                     colour=pygame.Color('gray'),
+                     pressedColour=(90, 90, 255),
+                     inactiveColour=(176, 176, 176))
+index_exit = Button(screen, WIN_WIDTH // 64, WIN_HEIGHT // 40, WIN_WIDTH / 8.533, WIN_HEIGHT / 10.666,
+                     text="Back",
+                     font=pygame.font.SysFont('calibri', WIN_WIDTH // 32) if WIN_HEIGHT < WIN_WIDTH else pygame.font.SysFont('calibri', WIN_HEIGHT // 20), 
+                     onRelease=(lambda: [change_page("merge")]),
+                     textHAlign='centre', textVAlign='centre',
+                     radius=3,
+                     colour=pygame.Color('gray'),
+                     pressedColour=(90, 90, 255),
+                     inactiveColour=(176, 176, 176))
+index_select = TextBox(screen, WIN_WIDTH // 64, WIN_HEIGHT // 2.5, WIN_WIDTH / 7, WIN_HEIGHT / 10.666,
+                     font=pygame.font.SysFont('calibri', WIN_WIDTH // 45) if WIN_HEIGHT < WIN_WIDTH else pygame.font.SysFont('calibri', WIN_HEIGHT // 25),
+                     placeholderText="File Number")
+index_run = Button(screen, WIN_WIDTH // 64, WIN_HEIGHT - WIN_HEIGHT / 10.4, WIN_WIDTH / 8.533, WIN_HEIGHT / 10.666,
+                     text="Remove",
+                     font=pygame.font.SysFont('calibri', WIN_WIDTH // 45) if WIN_HEIGHT < WIN_WIDTH else pygame.font.SysFont('calibri', WIN_HEIGHT // 25), 
+                     onRelease=(lambda: remove_in_file(index_select.getText())),
+                     textHAlign='centre', textVAlign='centre',
+                     radius=3,
+                     colour=pygame.Color('gray'),
+                     pressedColour=(90, 90, 255),
+                     inactiveColour=(176, 176, 176))
+order_exit = Button(screen, WIN_WIDTH // 64, WIN_HEIGHT // 40, WIN_WIDTH / 8.533, WIN_HEIGHT / 10.666,
+                     text="Back",
+                     font=pygame.font.SysFont('calibri', WIN_WIDTH // 32) if WIN_HEIGHT < WIN_WIDTH else pygame.font.SysFont('calibri', WIN_HEIGHT // 20), 
+                     onRelease=(lambda: [change_page("merge")]),
+                     textHAlign='centre', textVAlign='centre',
+                     radius=3,
+                     colour=pygame.Color('gray'),
+                     pressedColour=(90, 90, 255),
+                     inactiveColour=(176, 176, 176))
+order_select_1 = TextBox(screen, WIN_WIDTH // 64, WIN_HEIGHT // 2.5, WIN_WIDTH / 7, WIN_HEIGHT / 10.666,
+                     font=pygame.font.SysFont('calibri', WIN_WIDTH // 45) if WIN_HEIGHT < WIN_WIDTH else pygame.font.SysFont('calibri', WIN_HEIGHT // 25),
+                     placeholderText="File Number")
+order_select_2 = TextBox(screen, WIN_WIDTH // 64, WIN_HEIGHT // 2, WIN_WIDTH / 7, WIN_HEIGHT / 10.666,
+                     font=pygame.font.SysFont('calibri', WIN_WIDTH // 45) if WIN_HEIGHT < WIN_WIDTH else pygame.font.SysFont('calibri', WIN_HEIGHT // 25),
+                     placeholderText="File Number")
+order_run = Button(screen, WIN_WIDTH // 64, WIN_HEIGHT - WIN_HEIGHT / 10.4, WIN_WIDTH / 8.533, WIN_HEIGHT / 10.666,
+                     text="Swap",
+                     font=pygame.font.SysFont('calibri', WIN_WIDTH // 45) if WIN_HEIGHT < WIN_WIDTH else pygame.font.SysFont('calibri', WIN_HEIGHT // 25), 
+                     onRelease=(lambda: merge_swap(order_select_1.getText(), order_select_2.getText())),
+                     textHAlign='centre', textVAlign='centre',
+                     radius=3,
+                     colour=pygame.Color('gray'),
+                     pressedColour=(90, 90, 255),
+                     inactiveColour=(176, 176, 176))
 
 opperation_buttons = [convert_input, convert_output, convert_run, 
                       clip_input, clip_output, clip_run, clip_start, clip_end,
                       scale_input, scale_output, scale_width, scale_height, scale_toggle_ration, scale_run,
-                      rotate_90, rotate_180, rotate_270, rotate_input, rotate_output, rotate_run]
+                      rotate_90, rotate_180, rotate_270, rotate_input, rotate_output, rotate_run,
+                      mirror_input, mirror_output, mirror_axis_lr, mirror_axis_ud, mirror_run,
+                      merge_add_input, merge_output, merge_remove_input, merge_order_input, merge_run,
+                      index_exit, index_select, index_run,
+                      order_exit, order_select_1, order_select_2, order_run]
 convert_indexes = [0, 1, 2]
 clip_indexes = [3, 4, 5, 6, 7]
 scale_indexes = [8, 9, 10, 11, 12, 13]
 rotate_indexes = [14, 15, 16, 17, 18, 19]
-mirror_indexes = []
+mirror_indexes = [20, 21, 22, 23, 24]
+merge_indexes = [25, 26, 27, 28, 29]
+index_indexes = [30, 31, 32]
+order_indexes = [33, 34, 35, 36]
 
 cur_font = pygame.font.SysFont('calibri', WIN_WIDTH // 40) if WIN_HEIGHT < WIN_WIDTH else pygame.font.SysFont('calibri', WIN_HEIGHT // 25)
 file_font = pygame.font.SysFont('calibri', WIN_WIDTH // 64) if WIN_HEIGHT < WIN_WIDTH else pygame.font.SysFont('calibri', WIN_HEIGHT // 40)
 
 while running:
     screen.fill((255, 255, 255))
-    change_page(home_dropdown.getSelected())
+    if page != "index" and page != "reorder":
+        change_page(home_dropdown.getSelected())
+    
     
 
     # Event Loop
@@ -461,12 +687,11 @@ while running:
             running = False
 
     if page == "home":
-        draw_home(pygame)
         home_button.hide()
         home_dropdown.show()
         hide_all(opperation_buttons)
 
-    if page != "home":
+    if page != "home" and page != "index" and page!= "reorder":
         home_dropdown.hide()
         home_button.show()
         text = cur_font.render(f"Current Page: {page}", True, (0, 0, 0))
@@ -536,8 +761,63 @@ while running:
         for i in mirror_indexes:
             opperation_buttons[i].show()
 
+        text1 = file_font.render(f"Input File: {mirror_in}", True, (0, 0, 0))
+        text2 = file_font.render(f"Output File: {mirror_out}", True, (0, 0, 0))
+        text3 = cur_font.render(f"Mirror Axis: {mirror_axis[0]}", True, (0, 0, 0))
 
-    
+        screen.blit(text1, (WIN_WIDTH // 2 - text1.get_width() // 2, WIN_HEIGHT // 4))
+        screen.blit(text2, (WIN_WIDTH // 2 - text2.get_width() // 2, WIN_HEIGHT // 4 + text1.get_height() + WIN_HEIGHT // 30))
+        screen.blit(text3, (WIN_WIDTH // 2 - text3.get_width() // 2, WIN_HEIGHT // 4 + text2.get_height() * 2.5 + WIN_HEIGHT // 30))
+
+    elif page == "merge":
+        hide_all(opperation_buttons)
+        for i in merge_indexes:
+            opperation_buttons[i].show()
+
+        text2 = file_font.render(f"Output File: {merge_out}", True, (0, 0, 0))
+        text3 = file_font.render(f"Video files must have the same dimensions. If the command is not run, use the scale feature to adjust.", True, (0, 0, 0))
+        
+        screen.blit(text3, ((WIN_WIDTH + WIN_WIDTH / 8.533 + WIN_WIDTH // 64) // 2 - text3.get_width() // 2, WIN_HEIGHT - text3.get_height() - 20))
+
+        text_surfaces = [file_font.render(f"Input Files: ", True, (0, 0, 0))]
+        for i in merge_order:
+            text_surfaces.append(file_font.render(f"{i + 1}.  {os.path.split(merge_in[i])[-1]}", True, (0, 0, 0)))
+
+        for i in range(len(text_surfaces)):
+            screen.blit(text_surfaces[i], (WIN_WIDTH // 2 - text_surfaces[i].get_width() // 2, WIN_HEIGHT // 10 + i * (text_surfaces[i].get_height() + 10)))
+        
+        screen.blit(text2, (WIN_WIDTH // 2 - text2.get_width() // 2, WIN_HEIGHT // 10 + i * (text_surfaces[0].get_height() + 10) + text_surfaces[0].get_height()*2 + 10))
+        
+
+    elif page == "reorder":
+        hide_all(opperation_buttons)
+        home_button.hide()
+        for i in order_indexes:
+            opperation_buttons[i].show()
+
+        text_surfaces = []
+        for i in merge_order:
+            text_surfaces.append(file_font.render(f"{i + 1}.  {os.path.split(merge_in[i])[-1]}", True, (0, 0, 0)))
+
+        for i in range(len(text_surfaces)):
+            screen.blit(text_surfaces[i], (WIN_WIDTH // 2 - text_surfaces[i].get_width() // 2 + WIN_WIDTH // 64 + 3, WIN_WIDTH // 10 + i * (text_surfaces[i].get_height() + 10)))
+
+    elif page == "index":
+        hide_all(opperation_buttons)
+        home_button.hide()
+        for i in index_indexes:
+            opperation_buttons[i].show()
+        
+        text_surfaces = []
+        for i in merge_order:
+            text_surfaces.append(file_font.render(f"{i + 1}.  {merge_in[i]}", True, (0, 0, 0)))
+
+        for i in range(len(text_surfaces)):
+            screen.blit(text_surfaces[i], (WIN_WIDTH // 2 - text_surfaces[i].get_width() // 2 + WIN_WIDTH // 64 + 3, WIN_WIDTH // 10 + i * (text_surfaces[i].get_height() + 10)))
+
+        # for i in merge_order:
+        #     merge_buttons.append(Button(screen, Button(screen, WIN_WIDTH // 64, 15+merge_buttons[-1].getHeight + 2, 30, 30, text=merge_order.index(i), font=pygame.font.SysFont('calibri', WIN_WIDTH // 45) if WIN_HEIGHT < WIN_WIDTH else pygame.font.SysFont('calibri', WIN_HEIGHT // 25), onRelease=lambda: remove_in_file(str(i)), textHAlign='centre', textVAlign='centre', radius=3, colour=pygame.Color('gray'), pressedColour=(90, 90, 255), inactiveColour=(176, 176, 176))))
+
 
     wg.update(events)
     pygame.display.update()
